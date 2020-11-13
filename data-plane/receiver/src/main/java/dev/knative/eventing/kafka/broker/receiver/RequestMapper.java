@@ -32,11 +32,13 @@ import io.vertx.core.Future;
 import io.vertx.core.Handler;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.kafka.client.producer.KafkaProducer;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.function.Function;
+
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -104,13 +106,20 @@ public class RequestMapper<K, V> implements Handler<HttpServerRequest>, IngressR
 
   @Override
   public void handle(final HttpServerRequest request) {
-    final var ingressInfo = pathMapper.get(request.path());
+    String rPath = request.path();
+    // 如果request为空的话，从header拿到对应的path
+    if (rPath == null || rPath.isEmpty() || rPath.equals("/")) {
+      rPath = request.headers().get("broker_request_path");
+    }
+    final var requestPath = rPath;
+
+    final var ingressInfo = pathMapper.get(requestPath);
     if (ingressInfo == null) {
       request.response().setStatusCode(RESOURCE_NOT_FOUND).end();
 
       logger.warn("resource not found {} {}",
         keyValue("resources", pathMapper.keySet()),
-        keyValue("path", request.path())
+        keyValue("path", requestPath)
       );
 
       return;
@@ -128,7 +137,7 @@ public class RequestMapper<K, V> implements Handler<HttpServerRequest>, IngressR
             keyValue("partition", record.partition()),
             keyValue("value", record.value()),
             keyValue("headers", record.headers()),
-            keyValue("path", request.path())
+            keyValue("path", requestPath)
           );
         })
         .onFailure(cause -> {
@@ -136,7 +145,7 @@ public class RequestMapper<K, V> implements Handler<HttpServerRequest>, IngressR
 
           logger.error("Failed to send record {} {}",
             keyValue("topic", record.topic()),
-            keyValue("path", request.path()),
+            keyValue("path", requestPath),
             cause
           );
         })
@@ -146,7 +155,7 @@ public class RequestMapper<K, V> implements Handler<HttpServerRequest>, IngressR
         badRequestCounter.increment();
 
         logger.warn("Failed to send record {}",
-          keyValue("path", request.path()),
+          keyValue("path", requestPath),
           cause
         );
       });
